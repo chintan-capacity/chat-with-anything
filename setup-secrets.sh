@@ -29,7 +29,7 @@ gh secret set GEMINI_API_KEY --body "AIzaSyAJT-p-SlzHkSc8hQGb_0z3MbVE9IWfnBc" --
 
 # Set WebShare Proxy Credentials
 echo "Setting WEBSHARE_PROXY_USERNAME..."
-gh secret set WEBSHARE_PROXY_USERNAME --body "xyjdcjab" --repo $REPO
+gh secret set WEBSHARE_PROXY_USERNAME --body "xvjdcjab-1" --repo $REPO
 
 echo "Setting WEBSHARE_PROXY_PASSWORD..."
 gh secret set WEBSHARE_PROXY_PASSWORD --body "hbqb5sqmf0oi" --repo $REPO
