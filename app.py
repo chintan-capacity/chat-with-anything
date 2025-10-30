@@ -117,7 +117,7 @@ def get_content_from_url(url: str, api_key: str = "") -> Tuple[str, str]:
         video_id = extract_video_id(url)
         if not video_id:
             raise Exception("Invalid YouTube URL")
-        content = get_youtube_transcript(video_id, api_key)
+        content = get_youtube_transcript(video_id)
         return content, "youtube"
     else:
         content = fetch_url_content(url)
