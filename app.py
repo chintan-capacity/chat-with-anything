@@ -6,6 +6,8 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from typing import Optional, Tuple
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 # Page configuration
 st.set_page_config(
@@ -38,18 +40,79 @@ def extract_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
-def get_youtube_transcript(video_id: str) -> str:
-    """Fetch transcript for a YouTube video"""
+def get_youtube_transcript_v3(video_id: str, api_key: str) -> str:
+    """Fetch transcript using YouTube Data API v3"""
     try:
-        # Create API instance and fetch transcript
+        youtube = build('youtube', 'v3', developerKey=api_key)
+
+        # Get caption tracks for the video
+        captions_response = youtube.captions().list(
+            part='snippet',
+            videoId=video_id
+        ).execute()
+
+        if not captions_response.get('items'):
+            raise Exception("No captions available for this video")
+
+        # Find English caption track (or first available)
+        caption_id = None
+        for item in captions_response['items']:
+            if item['snippet']['language'] == 'en':
+                caption_id = item['id']
+                break
+
+        if not caption_id and captions_response['items']:
+            caption_id = captions_response['items'][0]['id']
+
+        if not caption_id:
+            raise Exception("No suitable caption track found")
+
+        # Download the caption
+        caption_response = youtube.captions().download(
+            id=caption_id,
+            tfmt='srt'
+        ).execute()
+
+        # Parse SRT format to extract text
+        import re
+        text_lines = []
+        for block in caption_response.decode('utf-8').split('\n\n'):
+            lines = block.strip().split('\n')
+            if len(lines) >= 3:
+                # Skip timestamp and number, get the text
+                text_lines.append(' '.join(lines[2:]))
+
+        return ' '.join(text_lines)
+
+    except HttpError as e:
+        if e.resp.status == 403:
+            raise Exception(f"YouTube API quota exceeded or captions are disabled for this video")
+        raise Exception(f"YouTube API error: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error fetching transcript via YouTube API: {str(e)}")
+
+def get_youtube_transcript(video_id: str, gemini_api_key: str = "") -> str:
+    """Fetch transcript for a YouTube video with fallback to YouTube Data API v3"""
+
+    # Try youtube-transcript-api first (free, but may be blocked on cloud)
+    try:
         ytt_api = YouTubeTranscriptApi()
         fetched_transcript = ytt_api.fetch(video_id)
-
-        # Extract text from snippets
         transcript = " ".join([snippet.text for snippet in fetched_transcript])
         return transcript
-    except Exception as e:
-        raise Exception(f"Error fetching transcript: {str(e)}")
+    except Exception as transcript_api_error:
+        # If transcript API fails, try YouTube Data API v3
+        if gemini_api_key:
+            try:
+                return get_youtube_transcript_v3(video_id, gemini_api_key)
+            except Exception as v3_error:
+                raise Exception(
+                    f"Failed to fetch transcript. "
+                    f"youtube-transcript-api error: {str(transcript_api_error)}. "
+                    f"YouTube Data API v3 error: {str(v3_error)}"
+                )
+        else:
+            raise Exception(f"Error fetching transcript: {str(transcript_api_error)}")
 
 def fetch_url_content(url: str) -> str:
     """Fetch content from any URL"""
@@ -94,14 +157,14 @@ def fetch_url_content(url: str) -> str:
     except Exception as e:
         raise Exception(f"Error fetching URL content: {str(e)}")
 
-def get_content_from_url(url: str) -> Tuple[str, str]:
+def get_content_from_url(url: str, api_key: str = "") -> Tuple[str, str]:
     """Get content from URL (YouTube or regular webpage)
     Returns: (content, content_type)"""
     if is_youtube_url(url):
         video_id = extract_video_id(url)
         if not video_id:
             raise Exception("Invalid YouTube URL")
-        content = get_youtube_transcript(video_id)
+        content = get_youtube_transcript(video_id, api_key)
         return content, "youtube"
     else:
         content = fetch_url_content(url)
@@ -148,7 +211,7 @@ if st.button("Load URL", type="primary"):
         with st.spinner("Loading content from URL..."):
             try:
                 # Get content from URL
-                content, content_type = get_content_from_url(url)
+                content, content_type = get_content_from_url(url, api_key)
 
                 # Initialize Gemini chat session
                 model = initialize_gemini(api_key)
