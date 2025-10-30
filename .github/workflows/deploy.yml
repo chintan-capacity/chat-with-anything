@@ -65,7 +65,7 @@ jobs:
             --timeout 300 \
             --min-instances 0 \
             --max-instances 10 \
-            --set-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
+            --set-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},WEBSHARE_PROXY_USERNAME=${{ secrets.WEBSHARE_PROXY_USERNAME }},WEBSHARE_PROXY_PASSWORD=${{ secrets.WEBSHARE_PROXY_PASSWORD }}" \
             --port 8080 \
             --quiet
 

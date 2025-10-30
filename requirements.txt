@@ -1,6 +1,5 @@
 streamlit
 youtube-transcript-api
 google-generativeai
-google-api-python-client
 beautifulsoup4
 requests

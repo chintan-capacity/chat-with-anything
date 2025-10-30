@@ -1,13 +1,12 @@
 import streamlit as st
 import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import WebshareProxyConfig
 import re
 import os
 import requests
 from bs4 import BeautifulSoup
 from typing import Optional, Tuple
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 # Page configuration
 st.set_page_config(
@@ -40,79 +39,33 @@ def extract_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
-def get_youtube_transcript_v3(video_id: str, api_key: str) -> str:
-    """Fetch transcript using YouTube Data API v3"""
+def get_youtube_transcript(video_id: str) -> str:
+    """Fetch transcript for a YouTube video with WebShare proxy support"""
+
+    # Get WebShare credentials from environment
+    webshare_username = os.getenv("WEBSHARE_PROXY_USERNAME", "")
+    webshare_password = os.getenv("WEBSHARE_PROXY_PASSWORD", "")
+
     try:
-        youtube = build('youtube', 'v3', developerKey=api_key)
+        # If WebShare credentials are available, use them (for Cloud Run)
+        if webshare_username and webshare_password:
+            st.info("Using WebShare residential proxies for transcript fetching...")
+            ytt_api = YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(
+                    proxy_username=webshare_username,
+                    proxy_password=webshare_password,
+                )
+            )
+        else:
+            # Try without proxy first (works locally)
+            ytt_api = YouTubeTranscriptApi()
 
-        # Get caption tracks for the video
-        captions_response = youtube.captions().list(
-            part='snippet',
-            videoId=video_id
-        ).execute()
-
-        if not captions_response.get('items'):
-            raise Exception("No captions available for this video")
-
-        # Find English caption track (or first available)
-        caption_id = None
-        for item in captions_response['items']:
-            if item['snippet']['language'] == 'en':
-                caption_id = item['id']
-                break
-
-        if not caption_id and captions_response['items']:
-            caption_id = captions_response['items'][0]['id']
-
-        if not caption_id:
-            raise Exception("No suitable caption track found")
-
-        # Download the caption
-        caption_response = youtube.captions().download(
-            id=caption_id,
-            tfmt='srt'
-        ).execute()
-
-        # Parse SRT format to extract text
-        import re
-        text_lines = []
-        for block in caption_response.decode('utf-8').split('\n\n'):
-            lines = block.strip().split('\n')
-            if len(lines) >= 3:
-                # Skip timestamp and number, get the text
-                text_lines.append(' '.join(lines[2:]))
-
-        return ' '.join(text_lines)
-
-    except HttpError as e:
-        if e.resp.status == 403:
-            raise Exception(f"YouTube API quota exceeded or captions are disabled for this video")
-        raise Exception(f"YouTube API error: {str(e)}")
-    except Exception as e:
-        raise Exception(f"Error fetching transcript via YouTube API: {str(e)}")
-
-def get_youtube_transcript(video_id: str, gemini_api_key: str = "") -> str:
-    """Fetch transcript for a YouTube video with fallback to YouTube Data API v3"""
-
-    # Try youtube-transcript-api first (free, but may be blocked on cloud)
-    try:
-        ytt_api = YouTubeTranscriptApi()
         fetched_transcript = ytt_api.fetch(video_id)
         transcript = " ".join([snippet.text for snippet in fetched_transcript])
         return transcript
-    except Exception as transcript_api_error:
-        # If transcript API fails, try YouTube Data API v3
-        if gemini_api_key:
-            try:
-                return get_youtube_transcript_v3(video_id, gemini_api_key)
-            except Exception as v3_error:
-                raise Exception(
-                    f"Failed to fetch transcript. "
-                    f"youtube-transcript-api error: {str(transcript_api_error)}. "
-                    f"YouTube Data API v3 error: {str(v3_error)}"
-                )
-        else:
-            raise Exception(f"Error fetching transcript: {str(transcript_api_error)}")
+
+    except Exception as e:
+        raise Exception(f"Error fetching transcript: {str(e)}")
 
 def fetch_url_content(url: str) -> str:
     """Fetch content from any URL"""
